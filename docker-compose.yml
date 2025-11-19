@@ -8,125 +8,121 @@ services:
   # SERVICE 1: MongoDB Database
   # ==========================================
   mongodb:
-    # Use official MongoDB image from Docker Hub
     image: mongo:latest
-
-    # Container name (optional, but helpful for docker commands)
     container_name: mongodb
-
-    # Port mapping: host:container
-    # Access MongoDB on localhost:27017
     ports:
       - "27017:27017"
-
-    # Environment variables for MongoDB initialization
     environment:
-      # Root username and password
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: password
-      # Database to create on first startup
       MONGO_INITDB_DATABASE: product-service
-
-    # Volumes: Persist data and mount init scripts
     volumes:
-      # Named volume: Persist MongoDB data
       - mongodb-data:/data/db
-      # Bind mount: MongoDB runs scripts in this directory on first startup
       - ./init/mongo/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
-
-    # Connect to custom network
     networks:
       - microservices-network
-
-    # Restart policy: Restart container unless manually stopped
     restart: unless-stopped
 
   # ==========================================
   # SERVICE 2: Product Service Application
   # ==========================================
   product-service:
-    # Build configuration
     build:
-      # Directory containing Dockerfile
       context: ./product-service
-      # Dockerfile name (default is "Dockerfile")
       dockerfile: Dockerfile
-
-    # Tag the built image
     image: product-service:1.0
-
-    # Container name
     container_name: product-service
-
-    # Port mapping
     ports:
       - "8084:8084"
-
-    # Dependency: Start MongoDB before product-service
-    # Note: This only controls START order, not readiness
     depends_on:
       - mongodb
-
-    # Environment variables
     environment:
-      # Activate Docker Spring profile
       SPRING_PROFILES_ACTIVE: docker
-
-    # Connect to network
     networks:
       - microservices-network
-
-    # Restart policy
     restart: unless-stopped
 
   # ==========================================
-  # SERVICE 3: Mongo Express (Optional Web UI)
+  # SERVICE 3: Mongo Express
   # ==========================================
   mongo-express:
-    # Official Mongo Express image
     image: mongo-express:latest
-
-    # Container name
     container_name: mongo-express
-
-    # Port mapping: Access web UI at http://localhost:8081
     ports:
       - "8081:8081"
-
-    # Environment variables
     environment:
-      # Connect to MongoDB service
       ME_CONFIG_MONGODB_SERVER: mongodb
-      # Use the admin credentials from MongoDB
       ME_CONFIG_MONGODB_ADMINUSERNAME: admin
       ME_CONFIG_MONGODB_ADMINPASSWORD: password
-      # Web UI login credentials (different from MongoDB!)
       ME_CONFIG_BASICAUTH_USERNAME: admin
       ME_CONFIG_BASICAUTH_PASSWORD: pass
-
-    # Start after MongoDB
     depends_on:
       - mongodb
-
-    # Connect to network
     networks:
       - microservices-network
-
-    # Restart policy
     restart: unless-stopped
 
+
+  # ============================================
+  # PostgreSQL for Inventory Service
+  # ============================================
+  postgres-inventory:
+    container_name: postgres-inventory
+    image: postgres:latest
+    environment:
+      POSTGRES_DB: inventory_service
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      PGDATA: /data/postgres
+    volumes:
+      - ./docker/integrated/postgres/data/postgres-inventory:/data/postgres
+      - ./docker/integrated/postgres/inventory-service/init/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d inventory_service"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+
+  # ============================================
+  # Inventory Service
+  # ============================================
+  inventory-service:
+    build:
+      context: ./inventory-service
+      dockerfile: Dockerfile
+    image: inventory-service:latest
+    container_name: inventory-service
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-inventory:5432/inventory_service
+      SPRING_DATASOURCE_USERNAME: admin
+      SPRING_DATASOURCE_PASSWORD: password
+    depends_on:
+      postgres-inventory:
+        condition: service_healthy
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+
 # ==========================================
-# VOLUMES: Define named volumes
+# VOLUMES
 # ==========================================
 volumes:
-  # MongoDB data persistence
   mongodb-data:
     driver: local
 
 # ==========================================
-# NETWORKS: Define custom networks
+# NETWORKS
 # ==========================================
 networks:
-  # Bridge network for inter-container communication
   microservices-network:
     driver: bridge
