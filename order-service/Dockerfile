@@ -1,9 +1,26 @@
-FROM eclipse-temurin:21-jdk
-
+# ===============================
+# BUILD STAGE
+# ===============================
+FROM eclipse-temurin:21-jdk AS build
 WORKDIR /app
 
-COPY build/libs/order-service-0.0.1-SNAPSHOT.jar app.jar
+COPY gradlew .
+COPY gradle ./gradle
+COPY build.gradle.kts .
+COPY settings.gradle.kts .
+COPY src ./src
 
-EXPOSE 8084
+RUN chmod +x gradlew
+RUN ./gradlew clean build -x test
 
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+# ===============================
+# RUNTIME STAGE
+# ===============================
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+
+COPY --from=build /app/build/libs/*.jar app.jar
+
+EXPOSE 8082
+
+ENTRYPOINT ["java", "-jar", "app.jar"]
